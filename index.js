@@ -6,7 +6,7 @@ require('dotenv').config();
 const app = express();
 const port = process.env.PORT || 5000;
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
-console.log(process.env.STRIPE_SECRET_KEY)
+
 // middleware
 app.use(cors());
 app.use(express.json());
@@ -28,6 +28,8 @@ async function run() {
         const tagsCollection = client.db("echoverse").collection('tags');
         const usersCollection = client.db("echoverse").collection('users');
         const paymentsCollection = client.db("echoverse").collection('payments');
+        const postsCollection = client.db("echoverse").collection('posts');
+
 
         // Create new user
         app.post('/api/users', async (req, res) => {
@@ -133,7 +135,7 @@ async function run() {
 
             try {
                 const paymentIntent = await stripe.paymentIntents.create({
-                    amount, 
+                    amount,
                     currency: 'usd',
                     payment_method_types: ['card'],
                 });
@@ -145,7 +147,18 @@ async function run() {
             }
         });
 
-
+        // Add a new post
+        app.post('/api/posts', async (req, res) => {
+            try {
+                const postData = req.body;
+                postData.createdAt = new Date().toISOString();
+                const result = await postsCollection.insertOne(postData);
+                res.send({ insertedId: result.insertedId });
+            } catch (err) {
+                console.error(err);
+                res.status(500).send({ error: "Failed to create post" });
+            }
+        });
         // POST: Add tag
         app.post('/api/tags', async (req, res) => {
             const { tagName } = req.body;
