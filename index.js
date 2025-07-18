@@ -25,19 +25,88 @@ async function run() {
     try {
         await client.connect();
         const tagsCollection = client.db("echoverse").collection('tags');
+        const usersCollection = client.db("echoverse").collection('users');
+
+        // Create new user
+        app.post('/api/users', async (req, res) => {
+            const { name, email, photo } = req.body; // ✅ photo destructure করো
+
+            try {
+                const existingUser = await usersCollection.findOne({ email });
+
+                if (existingUser) {
+                    // Update last login time
+                    const result = await usersCollection.updateOne(
+                        { email },
+                        {
+                            $set: {
+                                lastLogin: new Date()
+                            }
+                        }
+                    );
+                    return res.send({ message: 'User login time updated', updatedCount: result.modifiedCount });
+                } else {
+                    const newUser = {
+                        name,
+                        email,
+                        photo: photo || '',
+                        role: 'user',
+                        status: 'bronze',
+                        lastLogin: new Date(),
+                        createdAt: new Date()
+                    };
+
+                    const result = await usersCollection.insertOne(newUser);
+                    return res.send({ message: 'New user created', insertedId: result.insertedId });
+                }
+            } catch (error) {
+                console.error("User save error:", error);
+                return res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
+        // user get 
+        app.get('/api/users', async (req, res) => {
+            const { search } = req.query;
+
+            let query = {};
+            if (search) {
+                query.name = { $regex: search, $options: 'i' };
+            }
+
+            try {
+                const users = await usersCollection.find(query).toArray();
+                res.send(users);
+            } catch (error) {
+                res.status(500).send({ message: 'Error fetching users' });
+            }
+        });
+
+        // Update user status
+        app.patch('/api/users/admin/:id', async (req, res) => {
+            const { id } = req.params;
+
+            try {
+                const result = await usersCollection.updateOne(
+                    { _id: new ObjectId(id) },
+                    { $set: { role: 'admin' } }
+                );
+                res.send(result);
+            } catch (error) {
+                res.status(500).send({ message: 'Failed to update role' });
+            }
+        });
+
 
         // POST: Add tag
         app.post('/api/tags', async (req, res) => {
             const { tagName } = req.body;
 
-            // 1️⃣ ডুপ্লিকেট ট্যাগ আছে কি না চেক করো
             const existingTag = await tagsCollection.findOne({ tagName: tagName });
 
             if (existingTag) {
-                return res.status(400).send({ message: "❌ Tag already exists!" });
+                return res.status(400).send({ message: "Tag already exists!" });
             }
 
-            // 2️⃣ না থাকলে ইনসার্ট করো
             const result = await tagsCollection.insertOne({ tagName });
             res.send({ insertedId: result.insertedId });
         });
