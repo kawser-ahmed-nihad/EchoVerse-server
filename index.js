@@ -1,11 +1,12 @@
 const express = require('express');
 const cors = require('cors');
+const Stripe = require('stripe');
 const { MongoClient, ServerApiVersion } = require('mongodb');
 require('dotenv').config();
-
 const app = express();
 const port = process.env.PORT || 5000;
-
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+console.log(process.env.STRIPE_SECRET_KEY)
 // middleware
 app.use(cors());
 app.use(express.json());
@@ -26,10 +27,11 @@ async function run() {
         await client.connect();
         const tagsCollection = client.db("echoverse").collection('tags');
         const usersCollection = client.db("echoverse").collection('users');
+        const paymentsCollection = client.db("echoverse").collection('payments');
 
         // Create new user
         app.post('/api/users', async (req, res) => {
-            const { name, email, photo } = req.body; // ✅ photo destructure করো
+            const { name, email, photo } = req.body;
 
             try {
                 const existingUser = await usersCollection.findOne({ email });
@@ -64,6 +66,24 @@ async function run() {
                 return res.status(500).send({ message: "Internal Server Error" });
             }
         });
+        // update status
+        app.patch('/api/users/status/:email', async (req, res) => {
+            const email = req.params.email;
+            const { status } = req.body;
+
+            const result = await usersCollection.updateOne(
+                { email },
+                {
+                    $set: { status }
+                }
+            );
+
+            if (result.modifiedCount > 0) {
+                res.send({ success: true, message: "Status updated" });
+            } else {
+                res.send({ success: false, message: "No changes made" });
+            }
+        });
         // user get 
         app.get('/api/users', async (req, res) => {
             const { search } = req.query;
@@ -93,6 +113,35 @@ async function run() {
                 res.send(result);
             } catch (error) {
                 res.status(500).send({ message: 'Failed to update role' });
+            }
+        });
+
+        // payments save
+        app.post('/api/payments', async (req, res) => {
+            const payment = req.body;
+            const result = await paymentsCollection.insertOne(payment);
+            res.send(result);
+        });
+
+        // payments create
+        app.post('/api/create-payment-intent', async (req, res) => {
+            const { amount } = req.body;
+
+            if (!amount || typeof amount !== 'number') {
+                return res.status(400).json({ error: 'Invalid amount' });
+            }
+
+            try {
+                const paymentIntent = await stripe.paymentIntents.create({
+                    amount, 
+                    currency: 'usd',
+                    payment_method_types: ['card'],
+                });
+
+                res.send({ clientSecret: paymentIntent.client_secret });
+            } catch (err) {
+                console.error('Stripe error:', err.message);
+                res.status(500).json({ error: 'Payment Intent creation failed' });
             }
         });
 
