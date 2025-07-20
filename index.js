@@ -31,6 +31,8 @@ async function run() {
         const paymentsCollection = client.db("echoverse").collection('payments');
         const postsCollection = client.db("echoverse").collection('posts');
         const commentsCollection = client.db("echoverse").collection('comments');
+        const reportsCollection = client.db("echoverse").collection('reports');
+
 
 
         // Create new user
@@ -161,24 +163,22 @@ async function run() {
                 const post = await postsCollection.findOne({ _id: new ObjectId(id) });
                 if (!post) return res.status(404).send({ message: "Post not found!" });
 
+                if (!Array.isArray(post.votes)) {
+                    post.votes = [];
+                }
+
                 const existingVoteIndex = post.votes.findIndex(v => v.userId === userId);
 
                 if (existingVoteIndex !== -1) {
-
                     const existingVoteType = post.votes[existingVoteIndex].voteType;
-
                     if (voteType === null) {
-
                         post.votes.splice(existingVoteIndex, 1);
                     } else if (existingVoteType !== voteType) {
-
                         post.votes[existingVoteIndex].voteType = voteType;
                     } else {
-
                         return res.status(400).send({ message: "Already voted this way!" });
                     }
                 } else {
-
                     if (voteType !== null) {
                         post.votes.push({ userId, voteType });
                     }
@@ -191,17 +191,17 @@ async function run() {
                     else if (v.voteType === 'downVote') downVoteCount++;
                 });
 
-
-                const updateResult = await postsCollection.updateOne(
+                await postsCollection.updateOne(
                     { _id: new ObjectId(id) },
                     { $set: { votes: post.votes, upVote: upVoteCount, downVote: downVoteCount } }
                 );
 
-                if (updateResult.modifiedCount === 0) {
-                    return res.status(500).send({ message: "Failed to update vote counts." });
-                }
-
-                res.send({ message: "Vote updated successfully.", upVote: upVoteCount, downVote: downVoteCount });
+                res.send({
+                    message: "Vote updated successfully.",
+                    upVote: upVoteCount,
+                    downVote: downVoteCount,
+                    voteType: voteType,
+                });
             } catch (err) {
                 console.error(err);
                 res.status(500).send({ message: "Failed to update the vote!" });
@@ -363,6 +363,81 @@ async function run() {
             }
         });
 
+
+        // DELETE post by ID
+        app.delete('/api/posts/:id', async (req, res) => {
+            const postId = req.params.id;
+
+            try {
+                const result = await postsCollection.deleteOne({ _id: new ObjectId(postId) });
+
+                if (result.deletedCount === 1) {
+                    res.status(200).json({ message: 'Post deleted successfully' });
+                } else {
+                    res.status(404).json({ message: 'Post not found' });
+                }
+            } catch (error) {
+                console.error('Delete error:', error);
+                res.status(500).json({ message: 'Internal server error' });
+            }
+        });
+
+        // GET /api/comments/:postId
+        app.get('/api/comments/:postId', async (req, res) => {
+            const { postId } = req.params;
+
+            try {
+                const comments = await commentsCollection
+                    .find({ postId })
+                    .project({ userEmail: 1, comment: 1 })
+                    .toArray();
+
+                res.json({ comments });
+                console.log(comments);
+            } catch (error) {
+                console.error("Failed to fetch comments", error);
+                res.status(500).json({ error: 'Failed to fetch comments' });
+            }
+        });
+
+
+
+
+        // POST /api/reports
+        app.post('/api/reports', async (req, res) => {
+            const {
+                postId,
+                commentId,
+                feedback,
+                commentText,
+                commenterEmail,
+                email,
+                reportedAt
+            } = req.body;
+
+            if (!postId || !commentId || !feedback || !commentText || !commenterEmail || !reportedAt) {
+                return res.status(400).json({ error: 'Missing fields in report' });
+            }
+
+            try {
+                const report = {
+                    postId,
+                    commentId,
+                    feedback,
+                    commentText,
+                    commenterEmail,
+                    email,
+                    reportedAt,
+                };
+
+                await reportsCollection.insertOne(report);
+
+                res.status(201).json({ message: 'Report submitted successfully' });
+            } catch (error) {
+                console.error("Failed to submit report", error);
+                res.status(500).json({ error: 'Failed to submit report' });
+            }
+        });
 
 
 
