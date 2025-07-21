@@ -14,6 +14,11 @@ app.use(cors());
 app.use(express.json());
 
 
+
+
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, 'base64').toString('utf8')
+const service = JSON.parse(decoded);
+
 const serviceAccount = require("./echoverse.json");
 
 admin.initializeApp({
