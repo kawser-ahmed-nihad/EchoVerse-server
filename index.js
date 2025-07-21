@@ -7,10 +7,20 @@ const app = express();
 const port = process.env.PORT || 5000;
 const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 const { ObjectId } = require('mongodb');
+const admin = require("firebase-admin");
 
 // middleware
 app.use(cors());
 app.use(express.json());
+
+
+const serviceAccount = require("./echoverse.json");
+
+admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+});
+
+
 
 // MongoDB URI
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.gyokyfk.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -32,7 +42,59 @@ async function run() {
         const postsCollection = client.db("echoverse").collection('posts');
         const commentsCollection = client.db("echoverse").collection('comments');
         const reportsCollection = client.db("echoverse").collection('reports');
+        const announcementsCollection = client.db("echoverse").collection('announcements');
 
+
+        // custom middleware 
+
+        const verifyFbToken = async (req, res, next) => {
+            const authHeaders = req.headers.authorization;
+
+            if (!authHeaders || !authHeaders.startsWith('Bearer ')) {
+                return res.status(401).send({ message: "Unauthorized access" });
+            }
+
+            const token = authHeaders.split(' ')[1];
+
+            try {
+                const decodedToken = await admin.auth().verifyIdToken(token);
+                req.decoded = decodedToken;
+                next();
+            } catch (error) {
+                // console.error("Token verification failed", error);
+                return res.status(403).send({ message: "Forbidden access" });
+            }
+        };
+
+        const verifyAdmin = async (req, res, next) => {
+            const email = req.decoded.email;
+            const query = { email }
+            const user = await usersCollection.findOne(query);
+            if (!user || user.role !== "admin") {
+                return res.status(403).send({ message: "Forbidden access" });
+            }
+            next();
+        }
+
+        // Check if user is admin
+        app.get('/api/users/admin/:email', verifyFbToken, async (req, res) => {
+            const email = req.params.email;
+
+            if (req.decoded.email !== email) {
+                return res.status(403).send({ message: "Forbidden access" });
+            }
+
+            try {
+                const user = await usersCollection.findOne({ email: email });
+
+                const isAdmin = user?.role === 'admin';
+
+                res.send({ admin: isAdmin });
+            } catch (error) {
+                console.error("Error checking admin status:", error);
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
 
 
         // Create new user
@@ -77,6 +139,8 @@ async function run() {
             const email = req.params.email;
             const { status } = req.body;
 
+
+
             const result = await usersCollection.updateOne(
                 { email },
                 {
@@ -91,8 +155,12 @@ async function run() {
             }
         });
         // user get 
-        app.get('/api/users', async (req, res) => {
+        app.get('/api/users', verifyFbToken, async (req, res) => {
             const { search } = req.query;
+
+            if (req.decoded.email !== email) {
+                return res.status(403).send({ message: "Forbidden access" });
+            }
 
             let query = {};
             if (search) {
@@ -151,9 +219,13 @@ async function run() {
             }
         });
         // upvote / downVote update
-        app.patch('/api/posts/:id/vote', async (req, res) => {
+        app.patch('/api/posts/:id/vote', verifyFbToken, async (req, res) => {
             const { id } = req.params;
             const { userId, voteType } = req.body;
+
+            if (req.decoded.email !== email) {
+                return res.status(403).send({ message: "Forbidden access" });
+            }
 
             if (!['upVote', 'downVote', null].includes(voteType)) {
                 return res.status(400).send({ message: "Invalid vote type!" });
@@ -393,7 +465,7 @@ async function run() {
                     .toArray();
 
                 res.json({ comments });
-                console.log(comments);
+
             } catch (error) {
                 console.error("Failed to fetch comments", error);
                 res.status(500).json({ error: 'Failed to fetch comments' });
@@ -438,15 +510,105 @@ async function run() {
                 res.status(500).json({ error: 'Failed to submit report' });
             }
         });
+        // get Report
+        app.get('/api/reports', async (req, res) => {
+            const reports = await reportsCollection.find().sort({ reportedAt: -1 }).toArray();
+            res.json(reports);
+        });
 
+        // update Report
+        app.patch('/api/reports/:id', async (req, res) => {
+            const { id } = req.params;
+            const { status } = req.body;
 
+            const result = await reportsCollection.updateOne(
+                { _id: new ObjectId(id) },
+                { $set: { status } }
+            );
 
+            res.json(result);
+        });
+        // delete comments
+        app.delete('/api/comments/:commentId', async (req, res) => {
+            const { commentId } = req.params;
+
+            const result = await commentsCollection.deleteOne({ _id: new ObjectId(commentId) });
+            res.json(result);
+        });
+
+        // POST /api/announcements
+        app.post('/api/announcements', async (req, res) => {
+            try {
+                const { authorImg, authorName, title, description } = req.body;
+
+                // Basic validation
+                if (!authorName || !title || !description) {
+                    return res.status(400).json({ message: "Please fill all required fields" });
+                }
+
+                const newAnnouncement = {
+                    authorImg,
+                    authorName,
+                    title,
+                    description,
+                    createdAt: new Date(),
+                };
+
+                const result = await announcementsCollection.insertOne(newAnnouncement);
+                res.status(201).json({ message: "Announcement created", announcementId: result.insertedId });
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Failed to create announcement" });
+            }
+        });
+
+        // admin
+        app.get('/profile', async (req, res) => {
+            try {
+                const admin = await usersCollection.findOne({ email: req.user.email });
+                // if (!admin) return res.status(404).json({ message: 'Admin not found' });
+
+                res.json({
+                    name: admin.name,
+                    email: admin.email,
+                    image: admin.image
+                });
+            } catch (error) {
+                res.status(500).json({ message: 'Server error' });
+            }
+        });
+
+        // GET /api/admin/stats
+        app.get('/stats', async (req, res) => {
+            try {
+                const totalUsers = await usersCollection.countDocuments();
+                const announcementCount = await announcementsCollection.countDocuments();
+                const reportCount = await reportsCollection.countDocuments();
+                const actionsTaken = await reportsCollection.countDocuments({ status: 'resolved' });
+
+                res.json({
+                    totalUsers,
+                    announcementCount,
+                    reportCount,
+                    actionsTaken,
+                });
+            } catch (error) {
+                res.status(500).json({ message: 'Server error' });
+            }
+        });
+
+        // get announcements
+        app.get('/api/announcements', async (req, res) => {
+            const announcements = await announcementsCollection.find().toArray();
+            res.send(announcements);
+        });
 
         // Get all tags
         app.get('/api/tags', async (req, res) => {
             const tags = await tagsCollection.find().toArray();
             res.send(tags);
         });
+
 
         await client.db("admin").command({ ping: 1 });
         console.log(" Successfully connected to MongoDB!");
@@ -462,5 +624,5 @@ app.get("/", (req, res) => {
 });
 
 app.listen(port, () => {
-    console.log(`🚀 Server running on port ${port}`);
+    console.log(` Server running on port ${port}`);
 });
