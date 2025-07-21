@@ -139,8 +139,6 @@ async function run() {
             const email = req.params.email;
             const { status } = req.body;
 
-
-
             const result = await usersCollection.updateOne(
                 { email },
                 {
@@ -157,7 +155,7 @@ async function run() {
         // user get 
         app.get('/api/users', verifyFbToken, async (req, res) => {
             const { search } = req.query;
-
+            const email = req.decoded.email;
             if (req.decoded.email !== email) {
                 return res.status(403).send({ message: "Forbidden access" });
             }
@@ -176,8 +174,10 @@ async function run() {
         });
 
         // Update user status
-        app.patch('/api/users/admin/:id', async (req, res) => {
+        app.patch('/api/users/admin/:id', verifyFbToken, verifyAdmin, async (req, res) => {
             const { id } = req.params;
+
+            const email = req.params.email;
 
             try {
                 const result = await usersCollection.updateOne(
@@ -191,15 +191,22 @@ async function run() {
         });
 
         // payments save
-        app.post('/api/payments', async (req, res) => {
+        app.post('/api/payments', verifyFbToken, async (req, res) => {
+            const email = req.params.email;
+
+
+
             const payment = req.body;
             const result = await paymentsCollection.insertOne(payment);
             res.send(result);
         });
 
         // payments create
-        app.post('/api/create-payment-intent', async (req, res) => {
+        app.post('/api/create-payment-intent', verifyFbToken, async (req, res) => {
             const { amount } = req.body;
+            const email = req.params.email;
+
+
 
             if (!amount || typeof amount !== 'number') {
                 return res.status(400).json({ error: 'Invalid amount' });
@@ -223,9 +230,8 @@ async function run() {
             const { id } = req.params;
             const { userId, voteType } = req.body;
 
-            if (req.decoded.email !== email) {
-                return res.status(403).send({ message: "Forbidden access" });
-            }
+
+
 
             if (!['upVote', 'downVote', null].includes(voteType)) {
                 return res.status(400).send({ message: "Invalid vote type!" });
@@ -282,7 +288,10 @@ async function run() {
 
 
         // Add a new post
-        app.post('/api/posts', async (req, res) => {
+        app.post('/api/posts', verifyFbToken, async (req, res) => {
+            const email = req.params.email;
+
+
             try {
                 const postData = req.body;
                 postData.createdAt = new Date().toISOString();
@@ -294,8 +303,9 @@ async function run() {
             }
         });
         // post id
-        app.get('/api/posts/:id', async (req, res) => {
+        app.get('/api/posts/:id', verifyFbToken, async (req, res) => {
             const { id } = req.params;
+            const email = req.params.email;
 
             try {
                 const post = await postsCollection.findOne({ _id: new ObjectId(id) });
@@ -311,8 +321,9 @@ async function run() {
             }
         });
         // Add a comment get
-        app.get('/api/comments', async (req, res) => {
+        app.get('/api/comments', verifyFbToken, async (req, res) => {
             const { postId } = req.query;
+            const email = req.params.email;
 
             try {
                 const comments = await commentsCollection
@@ -328,8 +339,10 @@ async function run() {
         });
 
         // Add a comment
-        app.post('/api/comments', async (req, res) => {
+        app.post('/api/comments', verifyFbToken, async (req, res) => {
             const commentData = req.body;
+            const email = req.params.email;
+
             commentData.createdAt = new Date().toISOString();
 
             try {
@@ -342,8 +355,9 @@ async function run() {
         });
 
         // POST: Add tag
-        app.post('/api/tags', async (req, res) => {
+        app.post('/api/tags', verifyFbToken, verifyAdmin, async (req, res) => {
             const { tagName } = req.body;
+            const email = req.params.email;
 
             const existingTag = await tagsCollection.findOne({ tagName: tagName });
 
@@ -435,10 +449,33 @@ async function run() {
             }
         });
 
+        // GET: Get posts by logged-in user only
+        app.get('/api/logged/posts', verifyFbToken, async (req, res) => {
+            try {
+                const userEmail = req.decoded?.email;
+                const limit = parseInt(req.query.limit);
+                if (!userEmail) {
+                    return res.status(403).send({ message: "Unauthorized access" });
+                }
+
+                const posts = await postsCollection
+                    .find({ authorEmail: userEmail })
+                    .sort({ createdAt: -1 })
+                    .limit(limit)
+                    .toArray();
+
+                res.send({ posts });
+            } catch (err) {
+                console.error('Error fetching user posts:', err);
+                res.status(500).send({ error: "Failed to fetch posts" });
+            }
+        });
+
 
         // DELETE post by ID
-        app.delete('/api/posts/:id', async (req, res) => {
+        app.delete('/api/posts/:id', verifyFbToken, async (req, res) => {
             const postId = req.params.id;
+            const email = req.params.email;
 
             try {
                 const result = await postsCollection.deleteOne({ _id: new ObjectId(postId) });
@@ -455,8 +492,10 @@ async function run() {
         });
 
         // GET /api/comments/:postId
-        app.get('/api/comments/:postId', async (req, res) => {
+        app.get('/api/comments/:postId', verifyFbToken, async (req, res) => {
             const { postId } = req.params;
+            const email = req.params.email;
+
 
             try {
                 const comments = await commentsCollection
@@ -476,7 +515,8 @@ async function run() {
 
 
         // POST /api/reports
-        app.post('/api/reports', async (req, res) => {
+        app.post('/api/reports', verifyFbToken, verifyAdmin, async (req, res) => {
+
             const {
                 postId,
                 commentId,
@@ -486,6 +526,7 @@ async function run() {
                 email,
                 reportedAt
             } = req.body;
+
 
             if (!postId || !commentId || !feedback || !commentText || !commenterEmail || !reportedAt) {
                 return res.status(400).json({ error: 'Missing fields in report' });
@@ -511,15 +552,21 @@ async function run() {
             }
         });
         // get Report
-        app.get('/api/reports', async (req, res) => {
+        app.get('/api/reports', verifyFbToken, verifyAdmin, async (req, res) => {
+            const email = req.params.email;
+
             const reports = await reportsCollection.find().sort({ reportedAt: -1 }).toArray();
             res.json(reports);
         });
 
         // update Report
-        app.patch('/api/reports/:id', async (req, res) => {
+        app.patch('/api/reports/:id', verifyFbToken, verifyAdmin, async (req, res) => {
+
             const { id } = req.params;
             const { status } = req.body;
+
+            const email = req.params.email;
+
 
             const result = await reportsCollection.updateOne(
                 { _id: new ObjectId(id) },
@@ -529,15 +576,20 @@ async function run() {
             res.json(result);
         });
         // delete comments
-        app.delete('/api/comments/:commentId', async (req, res) => {
+        app.delete('/api/comments/:commentId', verifyFbToken, verifyAdmin, async (req, res) => {
             const { commentId } = req.params;
+
+            const email = req.params.email;
+
 
             const result = await commentsCollection.deleteOne({ _id: new ObjectId(commentId) });
             res.json(result);
         });
 
         // POST /api/announcements
-        app.post('/api/announcements', async (req, res) => {
+        app.post('/api/announcements', verifyFbToken, verifyAdmin, async (req, res) => {
+            const email = req.params.email;
+
             try {
                 const { authorImg, authorName, title, description } = req.body;
 
@@ -563,23 +615,29 @@ async function run() {
         });
 
         // admin
-        app.get('/profile', async (req, res) => {
+        app.get('/profile', verifyFbToken, verifyAdmin, async (req, res) => {
+
+
             try {
-                const admin = await usersCollection.findOne({ email: req.user.email });
-                // if (!admin) return res.status(404).json({ message: 'Admin not found' });
+                const admin = await usersCollection.findOne({ email: req.decoded.email });
+                if (!admin) return res.status(404).json({ message: 'Admin not found' });
 
                 res.json({
                     name: admin.name,
                     email: admin.email,
-                    image: admin.image
+                    image: admin.image,
+                    role: admin.role
                 });
             } catch (error) {
                 res.status(500).json({ message: 'Server error' });
             }
         });
 
+
+
         // GET /api/admin/stats
-        app.get('/stats', async (req, res) => {
+        app.get('/stats', verifyFbToken, verifyAdmin, async (req, res) => {
+
             try {
                 const totalUsers = await usersCollection.countDocuments();
                 const announcementCount = await announcementsCollection.countDocuments();
@@ -599,6 +657,9 @@ async function run() {
 
         // get announcements
         app.get('/api/announcements', async (req, res) => {
+            const email = req.params.email;
+
+
             const announcements = await announcementsCollection.find().toArray();
             res.send(announcements);
         });
