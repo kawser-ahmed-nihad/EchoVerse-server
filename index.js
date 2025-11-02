@@ -455,26 +455,74 @@ async function run() {
         });
 
         // GET: Get posts by logged-in user only
+        // app.get('/api/logged/posts', verifyFbToken, async (req, res) => {
+        //     try {
+        //         const userEmail = req.decoded?.email;
+        //         const limit = parseInt(req.query.limit);
+        //         if (!userEmail) {
+        //             return res.status(403).send({ message: "Unauthorized access" });
+        //         }
+
+        //         const posts = await postsCollection
+        //             .find({ authorEmail: userEmail })
+        //             .sort({ createdAt: -1 })
+        //             .limit(limit)
+        //             .toArray();
+
+        //         res.send({ posts });
+        //     } catch (err) {
+        //         console.error('Error fetching user posts:', err);
+        //         res.status(500).send({ error: "Failed to fetch posts" });
+        //     }
+        // });
+
         app.get('/api/logged/posts', verifyFbToken, async (req, res) => {
             try {
                 const userEmail = req.decoded?.email;
-                const limit = parseInt(req.query.limit);
+                const limit = parseInt(req.query.limit) || 5;
                 if (!userEmail) {
                     return res.status(403).send({ message: "Unauthorized access" });
                 }
 
-                const posts = await postsCollection
-                    .find({ authorEmail: userEmail })
-                    .sort({ createdAt: -1 })
-                    .limit(limit)
-                    .toArray();
+                const pipeline = [
+                    { $match: { authorEmail: userEmail } },
+                    {
+                        $lookup: {
+                            from: "comments",
+                            let: { postId: "$_id" },
+                            pipeline: [
+                                {
+                                    $match: {
+                                        $expr: { $eq: ["$postId", { $toString: "$$postId" }] }
+                                    }
+                                }
+                            ],
+                            as: "commentsData"
+                        }
+                    },
+                    {
+                        $addFields: {
+                            commentCount: { $size: "$commentsData" }
+                        }
+                    },
+                    {
+                        $project: {
+                            commentsData: 0
+                        }
+                    },
+                    { $sort: { createdAt: -1 } },
+                    { $limit: limit }
+                ];
+
+                const posts = await postsCollection.aggregate(pipeline).toArray();
 
                 res.send({ posts });
             } catch (err) {
-                console.error('Error fetching user posts:', err);
+                console.error("Error fetching user posts:", err);
                 res.status(500).send({ error: "Failed to fetch posts" });
             }
         });
+
 
 
         // DELETE post by ID
