@@ -157,6 +157,35 @@ async function run() {
                 res.send({ success: false, message: "No changes made" });
             }
         });
+
+        //  Get single user by email
+        app.get('/api/users/:email', verifyFbToken, async (req, res) => {
+            const email = req.params.email;
+
+            try {
+                const user = await client
+                    .db("echoverse")
+                    .collection("users")
+                    .findOne({ email });
+
+                if (!user) {
+
+                    return res.send({
+                        email,
+                        status: "bronze", // default membership
+                        role: "user", // default role
+                        totalPosts: 0, // default value
+                    });
+                }
+
+                res.send(user);
+            } catch (error) {
+                console.error("Error fetching user:", error);
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
+
+
         // user get 
         app.get('/api/users', verifyFbToken, async (req, res) => {
             const { search } = req.query;
