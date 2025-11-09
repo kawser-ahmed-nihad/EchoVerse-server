@@ -552,6 +552,29 @@ async function run() {
             }
         });
 
+        //  Get all posts by a specific user email
+        app.get('/api/posts/user/:email', verifyFbToken, async (req, res) => {
+            try {
+                const email = req.params.email;
+
+              
+                if (req.decoded.email !== email) {
+                    return res.status(403).send({ message: "Forbidden access" });
+                }
+
+                const posts = await client
+                    .db("echoverse")
+                    .collection("posts")
+                    .find({ authorEmail: email })
+                    .sort({ createdAt: -1 })
+                    .toArray();
+
+                res.send(posts);
+            } catch (error) {
+                console.error("Error fetching user's posts:", error);
+                res.status(500).send({ message: "Internal Server Error" });
+            }
+        });
 
 
         // DELETE post by ID
