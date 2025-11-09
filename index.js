@@ -325,7 +325,9 @@ async function run() {
         app.post('/api/posts', verifyFbToken, async (req, res) => {
             const email = req.params.email;
 
-
+            if (user.status === "bronze" && userPosts >= 5) {
+                return res.status(403).send({ message: "Post limit reached for Bronze users" });
+            }
             try {
                 const postData = req.body;
                 postData.createdAt = new Date().toISOString();
@@ -557,7 +559,7 @@ async function run() {
             try {
                 const email = req.params.email;
 
-              
+
                 if (req.decoded.email !== email) {
                     return res.status(403).send({ message: "Forbidden access" });
                 }
