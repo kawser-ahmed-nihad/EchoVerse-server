@@ -323,13 +323,19 @@ async function run() {
 
         // Add a new post
         app.post('/api/posts', verifyFbToken, async (req, res) => {
-            const email = req.params.email;
-
-            if (user.status === "bronze" && userPosts >= 5) {
-                return res.status(403).send({ message: "Post limit reached for Bronze users" });
-            }
             try {
                 const postData = req.body;
+                const email = req.decoded.email;
+
+             
+                const user = await usersCollection.findOne({ email });
+                const userPostsCount = await postsCollection.countDocuments({ authorEmail: email });
+
+               
+                if (user?.role === "bronze" && userPostsCount >= 5) {
+                    return res.status(403).send({ message: "Post limit reached for Bronze users" });
+                }
+
                 postData.createdAt = new Date().toISOString();
                 const result = await postsCollection.insertOne(postData);
                 res.send({ insertedId: result.insertedId });
@@ -338,6 +344,7 @@ async function run() {
                 res.status(500).send({ error: "Failed to create post" });
             }
         });
+
         // post id
         app.get('/api/posts/:id', verifyFbToken, async (req, res) => {
             const { id } = req.params;
