@@ -328,11 +328,11 @@ async function run() {
                 const postData = req.body;
                 const email = req.decoded.email;
 
-             
+
                 const user = await usersCollection.findOne({ email });
                 const userPostsCount = await postsCollection.countDocuments({ authorEmail: email });
 
-               
+
                 if (user?.role === "bronze" && userPostsCount >= 5) {
                     return res.status(403).send({ message: "Post limit reached for Bronze users" });
                 }
